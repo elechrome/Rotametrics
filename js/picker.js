@@ -157,9 +157,10 @@ export class Picker {
     if (!this.activeKey) return;
     const pt = this._clientToVideo(cx, cy);
     this.points[this.activeKey] = pt;
+    // onChange(버튼 활성화 등)를 렌더링보다 먼저 — 그리기 오류가 상태 갱신을 막지 않도록
+    this.onChange?.(this.activeKey, pt);
     this.draw();
     this._drawLoupe(pt, cx, cy);
-    this.onChange?.(this.activeKey, pt);
   }
 
   // ---------- 돋보기 ----------

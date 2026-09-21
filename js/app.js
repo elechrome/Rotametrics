@@ -29,6 +29,7 @@ const els = {
   frameLabel: $('frame-label'),
   stepText: $('step-text'),
   stepChips: $('step-chips'),
+  stepStatus: $('step-status'),
   btnBack: $('btn-back'),
   btnConfirm: $('btn-confirm'),
   resultCard: $('result-card'),
@@ -336,15 +337,23 @@ function render() {
   const def = STEP_DEFS[state.step];
   els.stepText.textContent = def.text;
 
-  // 확정 버튼
+  // 확정 버튼 — 지점이 지정되면 활성화. FPS 문제는 숨은 비활성화 대신 안내문으로 표시
   if (def.confirm) {
     els.btnConfirm.textContent = def.confirm;
     els.btnConfirm.hidden = false;
-    let ok = !!picker.points[def.point];
-    if (state.step === 'end') ok = ok && !!state.encodedFps && !!getCaptureFps();
-    els.btnConfirm.disabled = !ok;
+    const hasPoint = !!picker.points[def.point];
+    els.btnConfirm.disabled = !hasPoint;
+    let status = '';
+    if (!hasPoint) {
+      status = '영상 화면에서 지점을 터치하면 버튼이 활성화됩니다.';
+    } else if (state.step === 'end' && (!state.encodedFps || !getCaptureFps())) {
+      status = '⚠️ 상단의 FPS 설정이 비어 있습니다. 파일 FPS/촬영 FPS를 확인해주세요.';
+    }
+    els.stepStatus.textContent = status;
+    els.stepStatus.hidden = !status;
   } else {
     els.btnConfirm.hidden = true;
+    els.stepStatus.hidden = true;
   }
   els.btnBack.disabled = state.step === 'center';
 

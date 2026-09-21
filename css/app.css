@@ -199,6 +199,7 @@ input[type="number"] { width: 80px; }
 .chip.chip-center.set { border-color: var(--red); }
 .chip.chip-start.set { border-color: var(--green); }
 .chip.chip-end.set { border-color: var(--blue); }
+#step-status { margin: 0 0 10px; font-size: 13px; color: var(--yellow); line-height: 1.5; }
 .step-buttons { display: flex; gap: 8px; }
 .step-buttons .primary { flex: 1; }
 
