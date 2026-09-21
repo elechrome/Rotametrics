@@ -143,9 +143,10 @@ async function loadVideo(file) {
   els.scrub.max = els.video.duration;
   els.scrub.value = 0;
   picker.fit();
-  // 첫 프레임 즉시 표시 — 시킹으로 디코드를 강제 (안 하면 iOS에서 검은 화면)
-  videoCtl.seekTo(0.001);
   setStep('center');
+  // 첫 프레임 즉시 표시 — 잠깐 재생해 프레임이 그려진 것을 확인 후 정지
+  // (재생 없이는 iOS가 첫 프레임을 디코드하지 않아 검은 화면으로 남음)
+  await showFirstFrame();
 
   // FPS 감지: 메타데이터 → 재생 추정 → 수동
   let det = await detectEncodedFps(fileReader(file));
@@ -159,6 +160,25 @@ async function loadVideo(file) {
     renderFps();
   }
   render();
+}
+
+/** 음소거 재생으로 첫 프레임을 강제 표시하고 곧바로 정지 */
+async function showFirstFrame() {
+  const v = els.video;
+  try {
+    await v.play(); // muted + playsinline → 사용자 제스처 없이 허용
+    await new Promise((resolve) => {
+      let done = false;
+      const finish = () => { if (!done) { done = true; resolve(); } };
+      if (typeof v.requestVideoFrameCallback === 'function') {
+        v.requestVideoFrameCallback(finish); // 프레임이 실제로 그려진 시점
+        setTimeout(finish, 400);             // 미발화 대비
+      } else {
+        setTimeout(finish, 150);
+      }
+    });
+  } catch { /* 자동재생 차단 등 — 사용자가 재생 버튼을 누르면 표시됨 */ }
+  v.pause();
 }
 
 // ---------- FPS UI ----------
