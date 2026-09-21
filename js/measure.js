@@ -29,7 +29,13 @@ export function computeMeasurement({ center, startPoint, endPoint, tStart, tEnd,
   const angleDeg = Math.abs(signed);
   const direction = signed === 0 ? '-' : (signed > 0 ? '시계방향' : '반시계방향');
   const dFrames = Math.abs(Math.round((tEnd - tStart) * encodedFps));
-  const dt = dFrames / captureFps; // 실제 경과 시간(s) — 슬로우모션 보정의 핵심
+  // 실제 경과 시간(s):
+  //  - 촬영 fps = 파일 fps → 파일 타임라인이 곧 실제 시간이므로 시각 차이를 그대로 사용
+  //    (VFR 파일에서 프레임 수 × 평균 간격 환산으로 생기는 오차 제거)
+  //  - 촬영 fps ≠ 파일 fps (슬로우모션 변환본) → 프레임 수를 촬영 fps로 환산
+  const dt = captureFps === encodedFps
+    ? Math.abs(tEnd - tStart)
+    : dFrames / captureFps;
   const omega = dt > 0 ? angleDeg / dt : NaN;
   return { signed, angleDeg, direction, dFrames, dt, omega };
 }

@@ -75,6 +75,16 @@ test('슬로우모션: 240fps 촬영을 30fps 파일로 재생 — 실제 시간
   near(r.omega, 360);
 });
 
+test('VFR 실시간 타임라인(촬영=파일 fps): 시각 차이를 그대로 사용', () => {
+  // 60fps/20fps 혼합(평균 42.31fps) 파일에서 10프레임 × 16.667ms = 0.16667s 구간
+  const r = computeMeasurement({
+    center: { x: 0, y: 0 }, startPoint: { x: 1, y: 0 }, endPoint: { x: 0, y: 1 },
+    tStart: 1.0, tEnd: 1.16667, encodedFps: 42.31, captureFps: 42.31,
+  });
+  near(r.dt, 0.16667, 1e-9);       // 프레임 환산(7/42.31=0.16545)이 아닌 실제 시각 차이
+  near(r.omega, 90 / 0.16667, 1e-6);
+});
+
 test('끝 시각이 시작보다 앞이어도 크기는 동일', () => {
   const r = computeMeasurement({
     center: { x: 0, y: 0 }, startPoint: { x: 1, y: 0 }, endPoint: { x: 0, y: 1 },
