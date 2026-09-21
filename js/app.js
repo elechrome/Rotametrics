@@ -143,6 +143,8 @@ async function loadVideo(file) {
   els.scrub.max = els.video.duration;
   els.scrub.value = 0;
   picker.fit();
+  // 첫 프레임 즉시 표시 — 시킹으로 디코드를 강제 (안 하면 iOS에서 검은 화면)
+  videoCtl.seekTo(0.001);
   setStep('center');
 
   // FPS 감지: 메타데이터 → 재생 추정 → 수동
