@@ -36,6 +36,7 @@ header {
 }
 header h1 { font-size: 20px; margin: 0; letter-spacing: 0.5px; }
 header .subtitle { font-size: 13px; color: var(--text-dim); }
+#app-version { font-size: 11px; color: var(--text-dim); opacity: 0.7; }
 
 main { padding: 0 12px 32px; max-width: 720px; margin: 0 auto; }
 

@@ -1,5 +1,5 @@
 // 정적 자원 캐시 — HTTPS 배포 시 오프라인 동작용
-const CACHE = 'rotametrics-v7';
+const CACHE = 'rotametrics-v8';
 const ASSETS = [
   '.',
   'index.html',
@@ -17,7 +17,12 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches.open(CACHE)
+      // HTTP 캐시 우회 — 배포 직후에도 항상 최신 파일을 캐시에 담는다
+      .then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: 'reload' }))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (e) => {

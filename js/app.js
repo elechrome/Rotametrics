@@ -4,6 +4,8 @@ import { Picker } from './picker.js';
 import { computeMeasurement } from './measure.js';
 import * as history from './history.js';
 
+const APP_VERSION = 'v8'; // sw.js의 CACHE 버전과 함께 올릴 것
+
 // ---------- DOM ----------
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -162,23 +164,35 @@ async function loadVideo(file) {
   render();
 }
 
-/** 음소거 재생으로 첫 프레임을 강제 표시하고 곧바로 정지 */
+/** 프레임이 실제로 그려질 때까지 대기. 그려지면 true. */
+function waitFramePainted(timeoutMs) {
+  const v = els.video;
+  return new Promise((resolve) => {
+    if (typeof v.requestVideoFrameCallback !== 'function') {
+      setTimeout(() => resolve(true), 150); // 확인 불가 환경 — 낙관적으로 진행
+      return;
+    }
+    let done = false;
+    v.requestVideoFrameCallback(() => { if (!done) { done = true; resolve(true); } });
+    setTimeout(() => { if (!done) { done = true; resolve(false); } }, timeoutMs);
+  });
+}
+
+/** 첫 프레임 강제 표시: ①음소거 재생 → ②실패 시 시킹 폴백(0.05s, 0.2s) */
 async function showFirstFrame() {
   const v = els.video;
   try {
-    await v.play(); // muted + playsinline → 사용자 제스처 없이 허용
-    await new Promise((resolve) => {
-      let done = false;
-      const finish = () => { if (!done) { done = true; resolve(); } };
-      if (typeof v.requestVideoFrameCallback === 'function') {
-        v.requestVideoFrameCallback(finish); // 프레임이 실제로 그려진 시점
-        setTimeout(finish, 400);             // 미발화 대비
-      } else {
-        setTimeout(finish, 150);
-      }
-    });
-  } catch { /* 자동재생 차단 등 — 사용자가 재생 버튼을 누르면 표시됨 */ }
-  v.pause();
+    await v.play(); // muted + playsinline
+    const painted = await waitFramePainted(500);
+    v.pause();
+    if (painted) return;
+  } catch {
+    v.pause(); // 자동재생 차단(iOS 홈화면 앱 등) → 시킹 폴백으로
+  }
+  for (const t of [0.05, 0.2]) {
+    videoCtl.seekTo(t);
+    if (await waitFramePainted(500)) return;
+  }
 }
 
 // ---------- FPS UI ----------
@@ -509,6 +523,7 @@ els.btnExport.addEventListener('click', () => {
 
 // ---------- 초기화 ----------
 
+document.getElementById('app-version').textContent = APP_VERSION;
 renderHistory();
 render();
 
