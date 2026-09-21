@@ -1,5 +1,5 @@
 // 정적 자원 캐시 — HTTPS 배포 시 오프라인 동작용
-const CACHE = 'rotametrics-v4';
+const CACHE = 'rotametrics-v5';
 const ASSETS = [
   '.',
   'index.html',

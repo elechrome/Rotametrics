@@ -72,8 +72,9 @@ input[type="number"] { width: 80px; }
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 60vh;
-  gap: 20px;
+  min-height: 30vh;
+  gap: 12px;
+  padding-top: 16px;
 }
 .load-button {
   display: flex;
@@ -81,10 +82,10 @@ input[type="number"] { width: 80px; }
   justify-content: center;
   background: var(--accent-dim);
   border: 1px solid var(--accent);
-  border-radius: 14px;
-  padding: 22px 40px;
-  font-size: 18px;
-  font-weight: 700;
+  border-radius: 10px;
+  padding: 10px 22px;
+  font-size: 15px;
+  font-weight: 600;
   cursor: pointer;
 }
 .load-button:active { filter: brightness(1.2); }
@@ -108,6 +109,17 @@ input[type="number"] { width: 80px; }
 #encoded-fps-value { font-weight: 600; }
 #encoded-fps-value .src { color: var(--text-dim); font-size: 11px; font-weight: 400; }
 #encoded-fps-value.warn { color: var(--yellow); }
+.badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  vertical-align: 1px;
+}
+.badge.ok { color: var(--green); border: 1px solid var(--green); }
+.badge.warn { color: var(--yellow); border: 1px solid var(--yellow); }
 .fps-hint { width: 100%; margin: 2px 0 0; font-size: 12px; color: var(--yellow); }
 
 /* ---------- 스테이지 ---------- */

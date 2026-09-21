@@ -34,8 +34,8 @@ export async function detectEncodedFps(reader) {
   try {
     const moov = await findMoovBox(reader);
     if (!moov) return null;
-    const fps = parseMoovFps(moov);
-    return fps ? { fps, source: 'metadata' } : null;
+    const res = parseMoovFps(moov);
+    return res ? { fps: res.fps, source: 'metadata', timing: res.timing } : null;
   } catch {
     return null;
   }
@@ -128,16 +128,50 @@ function parseMoovFps({ view, start, end }) {
     // stts: FullBox(4) + entry_count(4) + [sample_count(4), sample_delta(4)]*
     const entryCount = view.getUint32(stts.start + 4);
     let samples = 0, ticks = 0;
+    const entries = [];
     for (let i = 0; i < entryCount; i++) {
       const off = stts.start + 8 + i * 8;
       if (off + 8 > stts.end) break;
       const count = view.getUint32(off);
+      const delta = view.getUint32(off + 4);
       samples += count;
-      ticks += count * view.getUint32(off + 4);
+      ticks += count * delta;
+      if (delta > 0) entries.push([count, delta]);
     }
-    if (samples > 0 && ticks > 0) return timescale * samples / ticks;
+    if (samples > 0 && ticks > 0) {
+      return {
+        fps: timescale * samples / ticks,
+        timing: analyzeTiming(entries, timescale, samples),
+      };
+    }
   }
   return null;
+}
+
+/** 프레임 간격 균일도 분석 — CFR/VFR 판별용 */
+function analyzeTiming(entries, timescale, samples) {
+  if (!entries.length || !samples) return null;
+  // 가중 중앙값 (프레임 수 기준)
+  const sorted = [...entries].sort((a, b) => a[1] - b[1]);
+  let acc = 0, median = sorted[0][1];
+  for (const [count, delta] of sorted) {
+    acc += count;
+    if (acc >= samples / 2) { median = delta; break; }
+  }
+  // 중앙값 ±2% 이내(또는 1틱 이내 지터)를 "균일"로 간주
+  const tol = Math.max(1, median * 0.02);
+  let uniform = 0;
+  let minDelta = Infinity, maxDelta = 0;
+  for (const [count, delta] of entries) {
+    if (Math.abs(delta - median) <= tol) uniform += count;
+    if (delta < minDelta) minDelta = delta;
+    if (delta > maxDelta) maxDelta = delta;
+  }
+  return {
+    uniformRatio: uniform / samples,     // 1.0에 가까울수록 고정 프레임
+    minFps: timescale / maxDelta,        // 가장 느린 순간
+    maxFps: timescale / minDelta,        // 가장 빠른 순간
+  };
 }
 
 /**

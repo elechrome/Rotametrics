@@ -53,6 +53,7 @@ const state = {
   url: null,
   encodedFps: null,      // 파일 fps
   encodedSource: null,   // 'metadata' | 'playback' | 'manual'
+  timing: null,          // 프레임 간격 균일도 {uniformRatio, minFps, maxFps}
   step: 'center',        // 'center' | 'start' | 'end' | 'done'
   tStart: null,
   tEnd: null,
@@ -120,6 +121,7 @@ async function loadVideo(file) {
   state.url = URL.createObjectURL(file);
   state.encodedFps = null;
   state.encodedSource = null;
+  state.timing = null;
   resetMeasurement({ keepCenter: false });
 
   els.video.src = state.url;
@@ -147,6 +149,7 @@ async function loadVideo(file) {
   let det = await detectEncodedFps(fileReader(file));
   if (!det) det = await estimateFpsByPlayback(els.video).catch(() => null);
   if (det) {
+    state.timing = det.timing || null;
     setEncodedFps(snapFps(det.fps), det.source);
   } else {
     state.encodedFps = null;
@@ -171,12 +174,23 @@ function setEncodedFps(fps, source) {
 
 function renderFps() {
   const v = els.encodedFpsValue;
+  const t = state.timing;
+  const isVfr = t && t.uniformRatio < 0.98;
   if (state.encodedFps) {
     v.textContent = `${state.encodedFps} `;
     const src = document.createElement('span');
     src.className = 'src';
     src.textContent = `(${SOURCE_LABEL[state.encodedSource] || ''})`;
     v.appendChild(src);
+    // 고정/가변 프레임 배지 (메타데이터 분석이 가능했던 경우)
+    if (t) {
+      const badge = document.createElement('span');
+      badge.className = 'badge ' + (isVfr ? 'warn' : 'ok');
+      badge.textContent = isVfr
+        ? `가변 ${t.minFps.toFixed(0)}~${t.maxFps.toFixed(0)}fps`
+        : '고정';
+      v.appendChild(badge);
+    }
     v.classList.remove('warn');
   } else {
     v.textContent = '감지 실패';
@@ -188,6 +202,9 @@ function renderFps() {
   let hint = '';
   if (!state.encodedFps) {
     hint = '파일 FPS를 직접 선택해주세요. 프레임 이동과 시간 계산에 필요합니다.';
+  } else if (isVfr) {
+    hint = '⚠️ 프레임 간격이 가변인 영상입니다. 촬영 FPS를 "파일과 동일"로 두면 시간 계산은 정확하지만, '
+      + '정밀 측정에는 밝은 조명에서 고정 fps(자동 FPS 끔)로 촬영한 영상을 권장합니다.';
   } else if (state.encodedFps >= 100) {
     hint = '고속 촬영(슬로우모션 원본) 파일로 감지되었습니다. 촬영 FPS가 같다면 그대로 두세요.';
   } else {

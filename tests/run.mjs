@@ -188,6 +188,29 @@ await testAsync('stts 엔트리가 여러 개(가변 duration)면 평균 fps', a
   near(det.fps, 160);
 });
 
+await testAsync('고정 프레임(CFR) 판별: uniformRatio = 1', async () => {
+  const mp4 = makeMp4({ moovAtEnd: true, mdhd: mdhdV0(24000), stts: sttsBox([[480, 100]]) });
+  const det = await detectEncodedFps(bufReader(mp4));
+  assert.ok(det.timing, 'timing 없음');
+  near(det.timing.uniformRatio, 1);
+});
+
+await testAsync('가변 프레임(VFR) 판별: 60/20fps 혼합 → uniformRatio < 0.98', async () => {
+  // IMG_6549.mov와 같은 구성: timescale 2400, 16.67ms(delta 40) 501개 + 50ms(delta 120) 131개
+  const mp4 = makeMp4({ moovAtEnd: true, mdhd: mdhdV0(2400), stts: sttsBox([[501, 40], [131, 120]]) });
+  const det = await detectEncodedFps(bufReader(mp4));
+  assert.ok(det.timing.uniformRatio < 0.98, `uniformRatio=${det.timing.uniformRatio}`);
+  near(det.timing.maxFps, 60);
+  near(det.timing.minFps, 20);
+});
+
+await testAsync('미세 지터(±1틱)는 고정으로 판별', async () => {
+  // 240fps, timescale 24000: delta 100 위주에 99/101 지터 섞임
+  const mp4 = makeMp4({ moovAtEnd: true, mdhd: mdhdV0(24000), stts: sttsBox([[200, 100], [20, 99], [20, 101]]) });
+  const det = await detectEncodedFps(bufReader(mp4));
+  near(det.timing.uniformRatio, 1);
+});
+
 await testAsync('moov가 없는(손상된) 파일 → null', async () => {
   const junk = Buffer.concat([box('ftyp', 'isom'), box('mdat', Buffer.alloc(100))]);
   const det = await detectEncodedFps(bufReader(junk));
