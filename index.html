@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Rotametrics</title>
+<meta name="description" content="동영상 기반 회전 각속도 측정">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0f1115">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<header>
+  <h1>Rotametrics</h1>
+  <span class="subtitle">회전 각속도 측정</span>
+</header>
+
+<main>
+  <!-- 1. 동영상 로드 -->
+  <section id="screen-load">
+    <label class="load-button" for="file-input">
+      동영상 불러오기
+      <input id="file-input" type="file" accept="video/*" hidden>
+    </label>
+    <p class="hint">아이폰으로 촬영한 동영상(일반/슬로우모션)을 선택하세요.<br>
+    슬로우모션 영상도 촬영 FPS를 지정하면 실제 각속도를 계산합니다.</p>
+  </section>
+
+  <!-- 2. 측정 화면 -->
+  <section id="screen-measure" hidden>
+
+    <div id="fps-bar">
+      <div class="fps-item">
+        <span class="fps-label">파일 FPS</span>
+        <span id="encoded-fps-value">감지 중…</span>
+        <select id="encoded-fps-select" hidden>
+          <option value="">선택</option>
+          <option value="24">24</option>
+          <option value="25">25</option>
+          <option value="29.97">29.97</option>
+          <option value="30">30</option>
+          <option value="60">60</option>
+          <option value="120">120</option>
+          <option value="240">240</option>
+        </select>
+      </div>
+      <div class="fps-item">
+        <span class="fps-label">촬영 FPS</span>
+        <select id="capture-fps-select">
+          <option value="same" selected>파일과 동일</option>
+          <option value="24">24</option>
+          <option value="25">25</option>
+          <option value="30">30</option>
+          <option value="60">60</option>
+          <option value="120">120</option>
+          <option value="240">240</option>
+          <option value="custom">직접 입력</option>
+        </select>
+        <input id="capture-fps-custom" type="number" inputmode="decimal" min="1" step="any" placeholder="fps" hidden>
+      </div>
+      <p id="fps-hint" class="fps-hint" hidden></p>
+    </div>
+
+    <div id="stage">
+      <div id="world">
+        <video id="video" playsinline muted preload="metadata"></video>
+        <canvas id="overlay"></canvas>
+      </div>
+      <canvas id="loupe" hidden></canvas>
+    </div>
+
+    <div id="transport">
+      <input id="scrub" type="range" min="0" max="0" step="0.001" value="0">
+      <div class="transport-row">
+        <button id="btn-play" title="재생/일시정지">▶</button>
+        <button id="btn-b10">−10</button>
+        <button id="btn-b1">−1</button>
+        <span id="frame-label">#0 / 0<br><small>0.000 s</small></span>
+        <button id="btn-f1">+1</button>
+        <button id="btn-f10">+10</button>
+      </div>
+    </div>
+
+    <div id="step-banner">
+      <p id="step-text"></p>
+      <div id="step-chips"></div>
+      <div class="step-buttons">
+        <button id="btn-back">이전</button>
+        <button id="btn-confirm" class="primary" disabled>확정</button>
+      </div>
+    </div>
+
+    <div id="result-card" hidden>
+      <div class="omega"><span id="res-omega">–</span> <span class="unit">deg/s</span></div>
+      <dl class="result-grid">
+        <div><dt>회전 각도</dt><dd id="res-angle">–</dd></div>
+        <div><dt>방향</dt><dd id="res-dir">–</dd></div>
+        <div><dt>프레임 수</dt><dd id="res-frames">–</dd></div>
+        <div><dt>실제 경과 시간</dt><dd id="res-dt">–</dd></div>
+        <div><dt>적용 FPS</dt><dd id="res-fps">–</dd></div>
+      </dl>
+      <div class="result-buttons">
+        <button id="btn-save" class="primary">기록에 저장</button>
+        <button id="btn-new">새 측정</button>
+        <button id="btn-new-same" class="ghost">같은 중심으로 새 측정</button>
+      </div>
+      <p class="assumption">※ 카메라가 회전 평면과 수직으로 촬영되었고, 측정 구간 회전량이 180° 미만이라고 가정합니다.</p>
+    </div>
+
+    <section id="history-section">
+      <div class="history-header">
+        <h2>측정 기록</h2>
+        <button id="btn-export">CSV 내보내기</button>
+      </div>
+      <ul id="history-list"></ul>
+    </section>
+
+    <button id="btn-change-video" class="ghost wide">다른 동영상 불러오기</button>
+  </section>
+</main>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

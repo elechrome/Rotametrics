@@ -1,0 +1,11 @@
+{
+  "name": "rotametrics",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "동영상 기반 회전 각속도 측정 웹앱",
+  "scripts": {
+    "start": "python3 -m http.server 8000",
+    "test": "node tests/run.mjs"
+  }
+}
