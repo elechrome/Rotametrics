@@ -49,7 +49,10 @@ button {
   padding: 10px 14px;
   min-height: 44px;
   cursor: pointer;
+  /* 연타 시 iOS가 더블탭 줌/스크롤로 해석하는 것을 방지 */
+  touch-action: manipulation;
 }
+select, input, .load-button { touch-action: manipulation; }
 button:active { filter: brightness(1.25); }
 button:disabled { opacity: 0.4; cursor: default; }
 button.primary { background: var(--accent-dim); border-color: var(--accent); font-weight: 600; }
