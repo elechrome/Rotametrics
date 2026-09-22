@@ -4,7 +4,7 @@ import { Picker } from './picker.js';
 import { computeMeasurement } from './measure.js';
 import * as history from './history.js';
 
-const APP_VERSION = 'v11'; // sw.js의 CACHE 버전과 함께 올릴 것
+const APP_VERSION = 'v12'; // sw.js의 CACHE 버전과 함께 올릴 것
 
 // ---------- DOM ----------
 const $ = (id) => document.getElementById(id);
@@ -282,6 +282,14 @@ function getCaptureFps() {
 }
 
 // ---------- 트랜스포트 ----------
+
+// 시킹 완료 후 프레임 캔버스를 여러 번 갱신 — 디코더가 늦게 준비되거나
+// rVFC가 발화하지 않는 iOS 상황에서도 새 프레임이 반드시 표시되도록
+els.video.addEventListener('seeked', () => {
+  picker.drawVideoFrame();
+  setTimeout(() => picker.drawVideoFrame(), 80);
+  setTimeout(() => picker.drawVideoFrame(), 250);
+});
 
 els.btnPlay.addEventListener('click', () => videoCtl.togglePlay());
 els.video.addEventListener('play', () => {

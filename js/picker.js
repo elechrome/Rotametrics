@@ -22,8 +22,15 @@ export class Picker {
     this.stage = stage;
     this.world = world;
     this.video = video;
-    this.frame = frame; // 현재 프레임을 직접 그리는 캔버스 — iOS의 시킹 후 화면 미갱신 대응
-    this.frameCtx = frame.getContext('2d', { alpha: false });
+    // 현재 프레임을 직접 그리는 캔버스 — iOS의 시킹 후 화면 미갱신 대응.
+    // 캐시된 옛 HTML에 요소가 없으면 동적으로 생성. 투명 캔버스라서
+    // 그리기 전/실패 시에는 아래의 video 요소가 그대로 보인다.
+    if (!frame) {
+      frame = document.createElement('canvas');
+      world.insertBefore(frame, overlay);
+    }
+    this.frame = frame;
+    this.frameCtx = frame.getContext('2d');
     this.overlay = overlay;
     this.loupe = loupe;
     this.ctx = overlay.getContext('2d');
@@ -79,7 +86,10 @@ export class Picker {
     if (!v.videoWidth || v.readyState < 2) return;
     try {
       this.frameCtx.drawImage(v, 0, 0, this.frame.width, this.frame.height);
-    } catch { /* 프레임 미준비 */ }
+    } catch {
+      // 그리기 실패 시 캔버스를 비워 오래된 그림이 영상을 가리지 않게 한다
+      this.frameCtx.clearRect(0, 0, this.frame.width, this.frame.height);
+    }
   }
 
   setActivePoint(key) { this.activeKey = key; }

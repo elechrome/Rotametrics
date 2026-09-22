@@ -139,13 +139,20 @@ function parseMoovFps({ view, start, end }) {
       if (delta > 0) entries.push([count, delta]);
     }
     if (samples > 0 && ticks > 0) {
-      const ctts = findBox(view, stbl.start, stbl.end, 'ctts');
-      const edts = findBox(view, trak.start, trak.end, 'edts');
-      const elst = edts && findBox(view, edts.start, edts.end, 'elst');
+      // 프레임 표는 부가 기능 — 어떤 이유로든 실패해도 fps 감지는 살아야 한다
+      let frameTimes = null;
+      try {
+        const ctts = findBox(view, stbl.start, stbl.end, 'ctts');
+        const edts = findBox(view, trak.start, trak.end, 'edts');
+        const elst = edts && findBox(view, edts.start, edts.end, 'elst');
+        frameTimes = buildFrameTimes({ view, entries, samples, ctts, elst, timescale });
+      } catch {
+        frameTimes = null;
+      }
       return {
         fps: timescale * samples / ticks,
         timing: analyzeTiming(entries, timescale, samples),
-        frameTimes: buildFrameTimes({ view, entries, samples, ctts, elst, timescale }),
+        frameTimes,
       };
     }
   }
@@ -189,7 +196,9 @@ function buildFrameTimes({ view, entries, samples, ctts, elst, timescale }) {
     const n = view.getUint32(elst.start + 4);
     let o = elst.start + 8;
     let mediaStart = null;
+    const entrySize = ev === 1 ? 20 : 12;
     for (let e = 0; e < n; e++) {
+      if (o + entrySize > elst.end) return null; // 손상/비표준 elst
       let mediaTime, rateInt;
       if (ev === 1) { mediaTime = Number(view.getBigInt64(o + 8)); rateInt = view.getInt16(o + 16); o += 20; }
       else { mediaTime = view.getInt32(o + 4); rateInt = view.getInt16(o + 8); o += 12; }
