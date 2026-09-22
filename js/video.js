@@ -172,9 +172,9 @@ export class VideoController {
       const onSeeked = () => {
         video.removeEventListener('seeked', onSeeked);
         // 일시정지 상태의 시킹에서도 새 프레임 표시 시 rVFC가 발화한다.
-        // 미발화(같은 프레임 유지) 대비 타임아웃 병행.
+        // 미발화(같은 프레임 유지) 판정 대기 — 길수록 안전하지만 +1 재시도 지연이 체감됨.
         video.requestVideoFrameCallback(() => finish());
-        setTimeout(finish, 250);
+        setTimeout(finish, 140);
       };
       video.addEventListener('seeked', onSeeked);
       safety = setTimeout(finish, 500); // seeked 자체가 안 오는 경우 안전망
