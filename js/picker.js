@@ -18,10 +18,12 @@ const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
 
 export class Picker {
-  constructor({ stage, world, video, overlay, loupe }) {
+  constructor({ stage, world, video, frame, overlay, loupe }) {
     this.stage = stage;
     this.world = world;
     this.video = video;
+    this.frame = frame; // 현재 프레임을 직접 그리는 캔버스 — iOS의 시킹 후 화면 미갱신 대응
+    this.frameCtx = frame.getContext('2d', { alpha: false });
     this.overlay = overlay;
     this.loupe = loupe;
     this.ctx = overlay.getContext('2d');
@@ -63,10 +65,21 @@ export class Picker {
     this.world.style.width = this.baseW + 'px';
     this.world.style.height = this.baseH + 'px';
     if (this.overlay.width !== vw) { this.overlay.width = vw; this.overlay.height = vh; }
+    if (this.frame.width !== vw) { this.frame.width = vw; this.frame.height = vh; }
+    this.drawVideoFrame();
     this.scale = 1;
     this.tx = (cw - this.baseW) / 2;
     this.ty = (ch - this.baseH) / 2;
     this._applyTransform();
+  }
+
+  /** 디코더에서 현재 프레임을 직접 뽑아 캔버스에 표시 (video 요소의 화면 갱신에 의존하지 않음) */
+  drawVideoFrame() {
+    const v = this.video;
+    if (!v.videoWidth || v.readyState < 2) return;
+    try {
+      this.frameCtx.drawImage(v, 0, 0, this.frame.width, this.frame.height);
+    } catch { /* 프레임 미준비 */ }
   }
 
   setActivePoint(key) { this.activeKey = key; }

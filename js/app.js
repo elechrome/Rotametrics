@@ -4,7 +4,7 @@ import { Picker } from './picker.js';
 import { computeMeasurement } from './measure.js';
 import * as history from './history.js';
 
-const APP_VERSION = 'v10'; // sw.js의 CACHE 버전과 함께 올릴 것
+const APP_VERSION = 'v11'; // sw.js의 CACHE 버전과 함께 올릴 것
 
 // ---------- DOM ----------
 const $ = (id) => document.getElementById(id);
@@ -94,6 +94,7 @@ const picker = new Picker({
   stage: els.stage,
   world: els.world,
   video: els.video,
+  frame: document.getElementById('framecanvas'),
   overlay: els.overlay,
   loupe: els.loupe,
 });
@@ -283,7 +284,18 @@ function getCaptureFps() {
 // ---------- 트랜스포트 ----------
 
 els.btnPlay.addEventListener('click', () => videoCtl.togglePlay());
-els.video.addEventListener('play', () => { els.btnPlay.textContent = '❚❚'; });
+els.video.addEventListener('play', () => {
+  els.btnPlay.textContent = '❚❚';
+  // rVFC 미지원 환경: 재생 중에는 rAF로 프레임 캔버스를 갱신
+  if (!videoCtl.hasRVFC) {
+    const loop = () => {
+      if (els.video.paused || els.video.ended) return;
+      picker.drawVideoFrame();
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  }
+});
 els.video.addEventListener('pause', () => { els.btnPlay.textContent = '▶'; });
 
 els.btnB10.addEventListener('click', () => videoCtl.step(-10));
@@ -301,6 +313,7 @@ els.scrub.addEventListener('input', () => {
 });
 
 videoCtl.onFrame = (t) => {
+  picker.drawVideoFrame(); // 프레임이 준비될 때마다 캔버스에 직접 표시
   if (!state.scrubbing) els.scrub.value = String(t);
   const known = !!(videoCtl.frameTimes || state.encodedFps);
   els.frameLabel.innerHTML =
