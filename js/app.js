@@ -4,7 +4,7 @@ import { Picker } from './picker.js';
 import { computeMeasurement } from './measure.js';
 import * as history from './history.js';
 
-const APP_VERSION = 'v14'; // sw.js의 CACHE 버전과 함께 올릴 것
+const APP_VERSION = 'v15'; // sw.js의 CACHE 버전과 함께 올릴 것
 
 // ---------- DOM ----------
 const $ = (id) => document.getElementById(id);

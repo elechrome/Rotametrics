@@ -231,6 +231,71 @@ test('프레임 수를 표로 계산: 슬로우모션 환산과 결합', () => {
   near(r.omega, 360);
 });
 
+// --- fMP4(조각형) 합성 도우미 ---
+function tkhdBox(trackId) {
+  return fullbox('tkhd', 0, u32(0), u32(0), u32(trackId), Buffer.alloc(68));
+}
+function fragVideoTrak(trackId, timescale) {
+  return box('trak', tkhdBox(trackId),
+    box('mdia', mdhdV0(timescale), hdlrBox('vide'),
+      box('minf', box('stbl', sttsBox([]))))); // 샘플 없음 — 조각에 있음
+}
+function trexBox(trackId, defaultDur) {
+  return fullbox('trex', 0, u32(trackId), u32(1), u32(defaultDur), u32(0), u32(0));
+}
+function trunBox(durations) {
+  // flags 0x100: 샘플별 duration만 기록
+  return box('trun', Buffer.from([0, 0, 1, 0]), u32(durations.length),
+    ...durations.map((d) => u32(d)));
+}
+function moofBox(trackId, baseTime, durations) {
+  return box('moof',
+    fullbox('mfhd', 0, u32(1)),
+    box('traf',
+      fullbox('tfhd', 0, u32(trackId)),
+      fullbox('tfdt', 0, u32(baseTime)),
+      trunBox(durations)));
+}
+function makeFragMp4({ trackId = 1, timescale = 600, fragments }) {
+  const moov = box('moov',
+    fullbox('mvhd', 0, Buffer.alloc(96)),
+    fragVideoTrak(trackId, timescale),
+    box('mvex', trexBox(trackId, 0)));
+  const parts = [box('ftyp', 'isom', u32(0x200), 'iso6mp41'), moov];
+  for (const f of fragments) {
+    parts.push(moofBox(trackId, f.baseTime, f.durations));
+    parts.push(box('mdat', Buffer.alloc(200)));
+  }
+  return Buffer.concat(parts);
+}
+
+await testAsync('fMP4(MediaRecorder식): moof 조각들에서 fps와 프레임 표 추출', async () => {
+  // timescale 600, 30fps(delta 20) 6프레임을 두 조각으로
+  const mp4 = makeFragMp4({
+    fragments: [
+      { baseTime: 0, durations: [20, 20, 20] },
+      { baseTime: 60, durations: [20, 20, 20] },
+    ],
+  });
+  const det = await detectEncodedFps(bufReader(mp4));
+  assert.ok(det, '감지 실패');
+  near(det.fps, 30);
+  assert.equal(det.frameTimes.length, 6);
+  near(det.frameTimes[3], 0.1); // 60틱/600
+  near(det.timing.uniformRatio, 1);
+});
+
+await testAsync('fMP4 VFR: 가변 duration 조각도 판별', async () => {
+  const mp4 = makeFragMp4({
+    fragments: [{ baseTime: 0, durations: [20, 20, 50, 20, 50, 20] }],
+  });
+  const det = await detectEncodedFps(bufReader(mp4));
+  assert.ok(det, '감지 실패');
+  assert.ok(det.timing.uniformRatio < 0.98);
+  assert.equal(det.frameTimes.length, 6);
+  near(det.frameTimes[5], 160 / 600);
+});
+
 await testAsync('moov가 없는(손상된) 파일 → null', async () => {
   const junk = Buffer.concat([box('ftyp', 'isom'), box('mdat', Buffer.alloc(100))]);
   const det = await detectEncodedFps(bufReader(junk));

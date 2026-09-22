@@ -32,10 +32,22 @@ export function fileReader(file) {
 /** 메타데이터에서 비디오 트랙 fps 감지. 실패 시 null. */
 export async function detectEncodedFps(reader) {
   try {
-    const moov = await findMoovBox(reader);
-    if (!moov) return null;
+    const tops = await scanTopLevel(reader);
+    const moovEntry = tops.find((b) => b.type === 'moov');
+    if (!moovEntry || moovEntry.size > 64 * 1024 * 1024) return null;
+    const view = await reader.read(moovEntry.offset, moovEntry.size);
+    const moov = { view, start: moovEntry.headerLen, end: moovEntry.size };
+
+    // 일반 MP4/MOV: moov의 stts에 샘플이 있음
     const res = parseMoovFps(moov);
-    return res ? { fps: res.fps, source: 'metadata', timing: res.timing, frameTimes: res.frameTimes } : null;
+    if (res) return { fps: res.fps, source: 'metadata', timing: res.timing, frameTimes: res.frameTimes };
+
+    // 조각형(fMP4, MediaRecorder/화면녹화 등): 샘플이 moof 조각들에 있음
+    if (tops.some((b) => b.type === 'moof')) {
+      const frag = await parseFragmented(reader, moov, tops);
+      if (frag) return { fps: frag.fps, source: 'metadata', timing: frag.timing, frameTimes: frag.frameTimes };
+    }
+    return null;
   } catch {
     return null;
   }
@@ -48,31 +60,28 @@ function boxTypeAt(view, offset) {
     view.getUint8(offset + 2), view.getUint8(offset + 3));
 }
 
-/** 최상위 박스를 훑어 moov 박스 전체를 메모리로 읽는다 (mdat은 건너뜀 — moov가 파일 끝에 있는 경우 대응). */
-async function findMoovBox(reader) {
+/** 최상위 박스 목록을 훑는다 (본문은 읽지 않음 — mdat이 커도 헤더만 확인) */
+async function scanTopLevel(reader) {
   const fileSize = reader.size;
+  const tops = [];
   let offset = 0;
-  while (offset + 8 <= fileSize) {
+  while (offset + 8 <= fileSize && tops.length < 100000) {
     const head = await reader.read(offset, Math.min(16, fileSize - offset));
     let boxSize = head.getUint32(0);
     const type = boxTypeAt(head, 4);
     let headerLen = 8;
     if (boxSize === 1) {
-      if (head.byteLength < 16) return null;
+      if (head.byteLength < 16) break;
       boxSize = Number(head.getBigUint64(8));
       headerLen = 16;
     } else if (boxSize === 0) {
       boxSize = fileSize - offset; // 마지막 박스
     }
-    if (boxSize < headerLen) return null; // 손상된 파일
-    if (type === 'moov') {
-      if (boxSize > 64 * 1024 * 1024) return null; // 비정상 크기 방어
-      const view = await reader.read(offset, boxSize);
-      return { view, start: headerLen, end: boxSize };
-    }
+    if (boxSize < headerLen) break; // 손상된 파일
+    tops.push({ type, offset, headerLen, size: boxSize });
     offset += boxSize;
   }
-  return null;
+  return tops;
 }
 
 /** view의 [start, end) 구간에 있는 자식 박스들을 순회 */
@@ -213,6 +222,130 @@ function buildFrameTimes({ view, entries, samples, ctts, elst, timescale }) {
   const out = new Float64Array(samples);
   for (let k = 0; k < samples; k++) out[k] = (times[k] - base) / timescale;
   return out;
+}
+
+/** moov에서 비디오 트랙의 track_ID와 timescale을 찾는다 (fMP4용) */
+function findVideoTrackInfo(view, start, end) {
+  for (const trak of boxes(view, start, end)) {
+    if (trak.type !== 'trak') continue;
+    const mdia = findBox(view, trak.start, trak.end, 'mdia');
+    if (!mdia) continue;
+    const hdlr = findBox(view, mdia.start, mdia.end, 'hdlr');
+    if (!hdlr || boxTypeAt(view, hdlr.start + 8) !== 'vide') continue;
+    const mdhd = findBox(view, mdia.start, mdia.end, 'mdhd');
+    const tkhd = findBox(view, trak.start, trak.end, 'tkhd');
+    if (!mdhd || !tkhd) continue;
+    const mv = view.getUint8(mdhd.start);
+    const timescale = mv === 1 ? view.getUint32(mdhd.start + 20) : view.getUint32(mdhd.start + 12);
+    const tv = view.getUint8(tkhd.start);
+    const trackId = tv === 1 ? view.getUint32(tkhd.start + 20) : view.getUint32(tkhd.start + 12);
+    if (timescale && trackId) return { trackId, timescale };
+  }
+  return null;
+}
+
+/**
+ * 조각형 MP4(fMP4): moof/traf/trun 조각들에서 비디오 샘플 시각을 수집.
+ * MediaRecorder(브라우저 녹화), 화면 녹화, 스트리밍 저장 파일이 이 구조.
+ */
+async function parseFragmented(reader, moov, tops) {
+  const info = findVideoTrackInfo(moov.view, moov.start, moov.end);
+  if (!info) return null;
+  const { trackId, timescale } = info;
+
+  // mvex/trex의 트랙 기본 샘플 duration
+  let trexDur = 0;
+  const mvex = findBox(moov.view, moov.start, moov.end, 'mvex');
+  if (mvex) {
+    for (const b of boxes(moov.view, mvex.start, mvex.end)) {
+      // trex: FullBox(4) + track_ID(4) + desc_index(4) + default_duration(4) + ...
+      if (b.type === 'trex' && moov.view.getUint32(b.start + 4) === trackId) {
+        trexDur = moov.view.getUint32(b.start + 12);
+      }
+    }
+  }
+
+  const MAX_SAMPLES = 500000;
+  const times = [];       // 샘플 표시 시각(틱)
+  const durHist = new Map(); // duration → count (fps/균일도 분석용)
+  let samples = 0, ticks = 0;
+  let runningTime = 0;    // tfdt가 없을 때의 누적 시각
+  let tableOk = true;
+
+  for (const top of tops) {
+    if (top.type !== 'moof') continue;
+    if (top.size > 8 * 1024 * 1024) return null;
+    const v = await reader.read(top.offset, top.size);
+
+    for (const traf of boxes(v, top.headerLen, top.size)) {
+      if (traf.type !== 'traf') continue;
+      const tfhd = findBox(v, traf.start, traf.end, 'tfhd');
+      if (!tfhd || v.getUint32(tfhd.start + 4) !== trackId) continue;
+
+      // tfhd 선택 필드 건너뛰기 → 조각 기본 duration
+      const tfFlags = v.getUint32(tfhd.start) & 0xffffff;
+      let o = tfhd.start + 8;
+      if (tfFlags & 0x01) o += 8; // base-data-offset
+      if (tfFlags & 0x02) o += 4; // sample-description-index
+      let fragDur = trexDur;
+      if (tfFlags & 0x08) { fragDur = v.getUint32(o); o += 4; }
+
+      // tfdt: 조각의 시작 시각
+      const tfdt = findBox(v, traf.start, traf.end, 'tfdt');
+      let t = runningTime;
+      if (tfdt) {
+        const tv = v.getUint8(tfdt.start);
+        t = tv === 1 ? Number(v.getBigUint64(tfdt.start + 4)) : v.getUint32(tfdt.start + 4);
+      }
+
+      for (const trun of boxes(v, traf.start, traf.end)) {
+        if (trun.type !== 'trun') continue;
+        const trVersion = v.getUint8(trun.start);
+        const trFlags = v.getUint32(trun.start) & 0xffffff;
+        const count = v.getUint32(trun.start + 4);
+        let p = trun.start + 8;
+        if (trFlags & 0x01) p += 4; // data-offset
+        if (trFlags & 0x04) p += 4; // first-sample-flags
+        const perSample =
+          ((trFlags & 0x100) ? 4 : 0) + ((trFlags & 0x200) ? 4 : 0) +
+          ((trFlags & 0x400) ? 4 : 0) + ((trFlags & 0x800) ? 4 : 0);
+        if (p + count * perSample > trun.end) return null; // 손상 방어
+
+        for (let i = 0; i < count; i++) {
+          let dur = fragDur;
+          if (trFlags & 0x100) { dur = v.getUint32(p); p += 4; }
+          if (trFlags & 0x200) p += 4; // size
+          if (trFlags & 0x400) p += 4; // flags
+          let cts = 0;
+          if (trFlags & 0x800) { cts = trVersion === 1 ? v.getInt32(p) : v.getUint32(p); p += 4; }
+          if (samples < MAX_SAMPLES) times.push(t + cts);
+          else tableOk = false;
+          if (dur > 0) durHist.set(dur, (durHist.get(dur) || 0) + 1);
+          t += dur;
+          samples++;
+          ticks += dur;
+        }
+      }
+      runningTime = t;
+    }
+  }
+
+  if (!samples || !ticks) return null;
+  const entries = [...durHist.entries()].map(([delta, count]) => [count, delta]);
+
+  let frameTimes = null;
+  if (tableOk && times.length) {
+    times.sort((a, b) => a - b);
+    const base = times[0];
+    frameTimes = new Float64Array(times.length);
+    for (let i = 0; i < times.length; i++) frameTimes[i] = (times[i] - base) / timescale;
+  }
+
+  return {
+    fps: timescale * samples / ticks,
+    timing: analyzeTiming(entries, timescale, samples),
+    frameTimes,
+  };
 }
 
 /** 프레임 간격 균일도 분석 — CFR/VFR 판별용 */
