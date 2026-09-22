@@ -17,6 +17,7 @@ export class VideoController {
     this._deltas = [];   // 재생 중 측정한 실제 프레임 간격들
     this._stepping = false;
     this._pendingIdx = null; // 표 기반 스텝의 연타 대응용 목표 인덱스
+    this._lastPresented = -1; // rVFC가 보고한 "실제 표시된 프레임"의 시각 (seeked로 오염되지 않음)
 
     if (this.hasRVFC) {
       let prev = null;
@@ -30,6 +31,7 @@ export class VideoController {
         }
         prev = meta.mediaTime;
         this.lastMediaTime = meta.mediaTime;
+        this._lastPresented = meta.mediaTime;
         this.onFrame?.(meta.mediaTime);
         this.video.requestVideoFrameCallback(loop);
       };
@@ -136,17 +138,21 @@ export class VideoController {
     }
   }
 
-  /** 정확한 ±1 프레임: mediaTime이 실제로 바뀔 때까지 보폭을 늘리며 최대 3회 시도 */
+  /** 정확한 ±1 프레임: "실제로 새 프레임이 표시됨"(rVFC 보고)이 확인될 때까지 보폭 확대 재시도.
+   *  시킹 목표 시각(seeked의 currentTime)으로 판정하면 긴 프레임(VFR) 위에서
+   *  이동하지 않았는데 성공으로 오판한다 — 반드시 _lastPresented로만 검증. */
   async _stepOne(dir) {
-    const m0 = this.lastMediaTime;
+    const p0 = this._lastPresented;
+    const m0 = p0 >= 0 ? p0 : this.lastMediaTime;
     const d = this.frameDuration();
-    // 앞으로: 다음 프레임 구간 안쪽을 노림 / 뒤로: 현재 프레임 시작 직전(이전 프레임 구간)
-    const multipliers = dir > 0 ? [1.1, 1.7, 2.4] : [0.4, 0.9, 1.6];
+    // VFR에서 평균보다 3배 긴 프레임(예: 60fps 기준 50ms)도 넘을 수 있는 보폭 시퀀스
+    const multipliers = dir > 0 ? [1.1, 2.1, 3.2, 4.3] : [0.4, 1.2, 2.3, 3.4];
     for (const k of multipliers) {
       const target = m0 + dir * k * d;
       if (target < 0 || target > this.video.duration) break;
-      const m = await this._seekAndSettle(target);
-      if (dir > 0 ? m > m0 + 1e-6 : m < m0 - 1e-6) return;
+      await this._seekAndSettle(target);
+      const p = this._lastPresented;
+      if (p !== p0 && (dir > 0 ? p > m0 + 1e-6 : p < m0 - 1e-6)) return;
     }
   }
 
@@ -166,9 +172,9 @@ export class VideoController {
       const onSeeked = () => {
         video.removeEventListener('seeked', onSeeked);
         // 일시정지 상태의 시킹에서도 새 프레임 표시 시 rVFC가 발화한다.
-        // 미발화 환경 대비 짧은 타임아웃 병행.
+        // 미발화(같은 프레임 유지) 대비 타임아웃 병행.
         video.requestVideoFrameCallback(() => finish());
-        setTimeout(finish, 150);
+        setTimeout(finish, 250);
       };
       video.addEventListener('seeked', onSeeked);
       safety = setTimeout(finish, 500); // seeked 자체가 안 오는 경우 안전망
