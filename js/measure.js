@@ -23,12 +23,15 @@ export function signedAngleDeg(center, p1, p2) {
  * @param {number} p.tEnd       끝 프레임의 미디어 시각 (s)
  * @param {number} p.encodedFps 파일에 인코딩된 fps (프레임 수 환산용)
  * @param {number} p.captureFps 실제 촬영 fps (실제 시간 환산용)
+ * @param {number} [p.dFrames]  정확한 경과 프레임 수 (프레임 표 기반, 없으면 평균 fps로 환산)
  */
-export function computeMeasurement({ center, startPoint, endPoint, tStart, tEnd, encodedFps, captureFps }) {
+export function computeMeasurement({ center, startPoint, endPoint, tStart, tEnd, encodedFps, captureFps, dFrames: dFramesIn }) {
   const signed = signedAngleDeg(center, startPoint, endPoint);
   const angleDeg = Math.abs(signed);
   const direction = signed === 0 ? '-' : (signed > 0 ? '시계방향' : '반시계방향');
-  const dFrames = Math.abs(Math.round((tEnd - tStart) * encodedFps));
+  const dFrames = dFramesIn != null
+    ? Math.abs(dFramesIn)
+    : Math.abs(Math.round((tEnd - tStart) * encodedFps));
   // 실제 경과 시간(s):
   //  - 촬영 fps = 파일 fps → 파일 타임라인이 곧 실제 시간이므로 시각 차이를 그대로 사용
   //    (VFR 파일에서 프레임 수 × 평균 간격 환산으로 생기는 오차 제거)

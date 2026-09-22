@@ -211,6 +211,26 @@ await testAsync('미세 지터(±1틱)는 고정으로 판별', async () => {
   near(det.timing.uniformRatio, 1);
 });
 
+await testAsync('프레임 시각 표: VFR에서도 각 프레임의 정확한 시각', async () => {
+  // timescale 2400: 40틱(16.67ms) 2개 + 120틱(50ms) 1개 + 40틱 1개
+  const mp4 = makeMp4({ moovAtEnd: true, mdhd: mdhdV0(2400), stts: sttsBox([[2, 40], [1, 120], [1, 40]]) });
+  const det = await detectEncodedFps(bufReader(mp4));
+  assert.ok(det.frameTimes, 'frameTimes 없음');
+  assert.equal(det.frameTimes.length, 4);
+  const exp = [0, 40 / 2400, 80 / 2400, 200 / 2400];
+  for (let i = 0; i < 4; i++) near(det.frameTimes[i], exp[i]);
+});
+
+test('프레임 수를 표로 계산: 슬로우모션 환산과 결합', () => {
+  // 표 기반 dFrames = 60을 직접 전달, 240fps 촬영 → dt = 0.25s
+  const r = computeMeasurement({
+    center: { x: 0, y: 0 }, startPoint: { x: 1, y: 0 }, endPoint: { x: 0, y: 1 },
+    tStart: 1.0, tEnd: 3.0, encodedFps: 30, captureFps: 240, dFrames: 60,
+  });
+  near(r.dt, 0.25);
+  near(r.omega, 360);
+});
+
 await testAsync('moov가 없는(손상된) 파일 → null', async () => {
   const junk = Buffer.concat([box('ftyp', 'isom'), box('mdat', Buffer.alloc(100))]);
   const det = await detectEncodedFps(bufReader(junk));

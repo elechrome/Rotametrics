@@ -35,7 +35,7 @@ export async function detectEncodedFps(reader) {
     const moov = await findMoovBox(reader);
     if (!moov) return null;
     const res = parseMoovFps(moov);
-    return res ? { fps: res.fps, source: 'metadata', timing: res.timing } : null;
+    return res ? { fps: res.fps, source: 'metadata', timing: res.timing, frameTimes: res.frameTimes } : null;
   } catch {
     return null;
   }
@@ -139,13 +139,71 @@ function parseMoovFps({ view, start, end }) {
       if (delta > 0) entries.push([count, delta]);
     }
     if (samples > 0 && ticks > 0) {
+      const ctts = findBox(view, stbl.start, stbl.end, 'ctts');
+      const edts = findBox(view, trak.start, trak.end, 'edts');
+      const elst = edts && findBox(view, edts.start, edts.end, 'elst');
       return {
         fps: timescale * samples / ticks,
         timing: analyzeTiming(entries, timescale, samples),
+        frameTimes: buildFrameTimes({ view, entries, samples, ctts, elst, timescale }),
       };
     }
   }
   return null;
+}
+
+/**
+ * 모든 프레임의 표시 시각(초) 표를 만든다 — 정확한 프레임 탐색/계산용.
+ * stts(디코드 간격) + ctts(표시 오프셋, 있으면) + elst(시작 오프셋, 있으면).
+ * 복잡한 편집(배속≠1)이나 비정상 크기면 null (호출 측은 산술 방식으로 폴백).
+ */
+function buildFrameTimes({ view, entries, samples, ctts, elst, timescale }) {
+  if (!samples || samples > 500000) return null;
+
+  // 디코드 타임스탬프(DTS)
+  const times = new Float64Array(samples);
+  let t = 0, i = 0;
+  for (const [count, delta] of entries) {
+    for (let k = 0; k < count; k++) { times[i++] = t; t += delta; }
+  }
+
+  // ctts가 있으면 표시 시각(PTS) = DTS + offset, 표시 순서로 정렬
+  if (ctts) {
+    const version = view.getUint8(ctts.start);
+    const n = view.getUint32(ctts.start + 4);
+    let j = 0;
+    for (let e = 0; e < n && j < samples; e++) {
+      const off = ctts.start + 8 + e * 8;
+      if (off + 8 > ctts.end) return null;
+      const count = view.getUint32(off);
+      const offset = version === 1 ? view.getInt32(off + 4) : view.getUint32(off + 4);
+      for (let k = 0; k < count && j < samples; k++) times[j++] += offset;
+    }
+    times.sort();
+  }
+
+  // elst: 시작 오프셋 보정. 배속이 있는 편집은 지원하지 않음
+  let base = ctts ? times[0] : 0;
+  if (elst) {
+    const ev = view.getUint8(elst.start);
+    const n = view.getUint32(elst.start + 4);
+    let o = elst.start + 8;
+    let mediaStart = null;
+    for (let e = 0; e < n; e++) {
+      let mediaTime, rateInt;
+      if (ev === 1) { mediaTime = Number(view.getBigInt64(o + 8)); rateInt = view.getInt16(o + 16); o += 20; }
+      else { mediaTime = view.getInt32(o + 4); rateInt = view.getInt16(o + 8); o += 12; }
+      if (mediaTime >= 0) {
+        if (rateInt !== 1) return null; // 배속 편집 → 표 사용 불가
+        if (mediaStart === null) mediaStart = mediaTime;
+      }
+    }
+    if (mediaStart !== null) base = mediaStart;
+  }
+
+  const out = new Float64Array(samples);
+  for (let k = 0; k < samples; k++) out[k] = (times[k] - base) / timescale;
+  return out;
 }
 
 /** 프레임 간격 균일도 분석 — CFR/VFR 판별용 */

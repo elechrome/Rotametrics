@@ -10,11 +10,13 @@ export class VideoController {
   constructor(video) {
     this.video = video;
     this.encodedFps = 30; // 파일 fps — 감지 후 app.js가 갱신
+    this.frameTimes = null; // 모든 프레임의 표시 시각 표 (메타데이터에서 추출 성공 시)
     this.lastMediaTime = 0;
     this.hasRVFC = typeof video.requestVideoFrameCallback === 'function';
     this.onFrame = null; // (mediaTime) => void — UI 갱신용
     this._deltas = [];   // 재생 중 측정한 실제 프레임 간격들
     this._stepping = false;
+    this._pendingIdx = null; // 표 기반 스텝의 연타 대응용 목표 인덱스
 
     if (this.hasRVFC) {
       let prev = null;
@@ -37,6 +39,7 @@ export class VideoController {
     video.addEventListener('seeked', () => {
       // rVFC가 실제 프레임 시각으로 갱신하기 전의 임시값
       this.lastMediaTime = video.currentTime;
+      this._pendingIdx = null;
       this.onFrame?.(this.getTime());
     });
     video.addEventListener('timeupdate', () => {
@@ -58,19 +61,59 @@ export class VideoController {
     return 1 / this.encodedFps;
   }
 
+  /** 프레임 표 설정 (null이면 산술 방식으로 폴백) */
+  setFrameTable(times) {
+    this.frameTimes = times && times.length ? times : null;
+    this._pendingIdx = null;
+  }
+
+  /** 시각 t가 속한 프레임 번호 */
+  frameIndexAt(t) {
+    const ft = this.frameTimes;
+    if (!ft) return Math.max(0, Math.floor(t * this.encodedFps + 1e-3));
+    // 이진 탐색: ft[i] <= t 인 마지막 i
+    const tt = t + 1e-4;
+    let lo = 0, hi = ft.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (ft[mid] <= tt) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo;
+  }
+
   frameIndex() {
-    return Math.max(0, Math.floor(this.getTime() * this.encodedFps + 1e-3));
+    return this.frameIndexAt(this.getTime());
   }
 
   totalFrames() {
+    if (this.frameTimes) return this.frameTimes.length;
     const d = this.video.duration;
     return Number.isFinite(d) ? Math.max(1, Math.round(d * this.encodedFps)) : 0;
   }
 
-  /** n프레임 이동 (음수 = 뒤로). ±1은 실제 프레임 변화를 검증하며 이동. */
+  /** 프레임 idx의 중앙 시각 — 여기로 시킹하면 반올림 오차 없이 해당 프레임이 표시됨 */
+  _frameMidTime(idx) {
+    const ft = this.frameTimes;
+    const t0 = ft[idx];
+    const t1 = idx + 1 < ft.length ? ft[idx + 1] : t0 + this.frameDuration();
+    return (t0 + t1) / 2;
+  }
+
+  /** n프레임 이동 (음수 = 뒤로) */
   async step(n) {
-    if (this._stepping) return; // 진행 중 중복 클릭 무시
     this.video.pause();
+
+    // 프레임 표가 있으면 정확한 좌표로 단번에 이동 (연타는 pendingIdx로 누적)
+    if (this.frameTimes) {
+      const base = this._pendingIdx ?? this.frameIndex();
+      const idx = Math.max(0, Math.min(base + n, this.frameTimes.length - 1));
+      this._pendingIdx = idx;
+      this.seekTo(this._frameMidTime(idx));
+      return;
+    }
+
+    if (this._stepping) return; // 진행 중 중복 클릭 무시
 
     if (!this.hasRVFC) {
       // 폴백: 산술 이동 (프레임 중앙 시각으로)

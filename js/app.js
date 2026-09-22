@@ -4,7 +4,7 @@ import { Picker } from './picker.js';
 import { computeMeasurement } from './measure.js';
 import * as history from './history.js';
 
-const APP_VERSION = 'v9'; // sw.js의 CACHE 버전과 함께 올릴 것
+const APP_VERSION = 'v10'; // sw.js의 CACHE 버전과 함께 올릴 것
 
 // ---------- DOM ----------
 const $ = (id) => document.getElementById(id);
@@ -124,6 +124,7 @@ async function loadVideo(file) {
   state.encodedFps = null;
   state.encodedSource = null;
   state.timing = null;
+  videoCtl.setFrameTable(null);
   resetMeasurement({ keepCenter: false });
 
   els.video.src = state.url;
@@ -155,6 +156,7 @@ async function loadVideo(file) {
   if (!det) det = await estimateFpsByPlayback(els.video).catch(() => null);
   if (det) {
     state.timing = det.timing || null;
+    videoCtl.setFrameTable(det.frameTimes || null); // 프레임 시각 표 → 정확한 탐색/계산
     setEncodedFps(snapFps(det.fps), det.source);
   } else {
     state.encodedFps = null;
@@ -300,11 +302,9 @@ els.scrub.addEventListener('input', () => {
 
 videoCtl.onFrame = (t) => {
   if (!state.scrubbing) els.scrub.value = String(t);
-  const fps = state.encodedFps;
-  const idx = fps ? Math.floor(t * fps + 1e-3) : null;
-  const total = fps ? videoCtl.totalFrames() : null;
+  const known = !!(videoCtl.frameTimes || state.encodedFps);
   els.frameLabel.innerHTML =
-    (fps ? `#${idx} / ${total}` : '#– / –') +
+    (known ? `#${videoCtl.frameIndexAt(t)} / ${videoCtl.totalFrames()}` : '#– / –') +
     `<br><small>${t.toFixed(3)} s</small>`;
 };
 
@@ -365,7 +365,10 @@ function computeResult() {
     alert('FPS가 설정되지 않았습니다. 상단에서 파일 FPS/촬영 FPS를 확인해주세요.');
     return;
   }
-  const dFrames = Math.round((state.tEnd - state.tStart) * state.encodedFps);
+  // 프레임 표가 있으면 정확한 프레임 수, 없으면 평균 fps로 환산
+  const dFrames = videoCtl.frameTimes
+    ? Math.abs(videoCtl.frameIndexAt(state.tEnd) - videoCtl.frameIndexAt(state.tStart))
+    : Math.abs(Math.round((state.tEnd - state.tStart) * state.encodedFps));
   if (dFrames === 0) {
     alert('시작과 끝이 같은 프레임입니다. 끝 프레임으로 이동한 뒤 다시 확정해주세요.');
     return;
@@ -378,6 +381,7 @@ function computeResult() {
     tEnd: state.tEnd,
     encodedFps: state.encodedFps,
     captureFps,
+    dFrames,
   });
   state.result.captureFps = captureFps;
   state.saved = false;
